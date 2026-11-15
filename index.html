@@ -73,6 +73,15 @@ body { font-family: var(--sans); }
 .logo { display: block; height: min(32vh, 13.4vw); width: auto; margin-bottom: .4em; filter: drop-shadow(0 2px 18px rgba(0,0,0,.8)); }
 .logo.small { height: min(22vh, 9.2vw); }
 .title .en { font-family: var(--serif); letter-spacing: .6em; padding-left: .6em; font-size: clamp(10px, 1.2vw, 16px); color: var(--ember); }
+/* under the logo: a thin spinning ring while the game loads, then (in the same spot) the prompt to start */
+.boot { display: grid; place-items: center; height: 2.4em; }
+.boot > * { grid-area: 1 / 1; transition: opacity .8s ease; }
+.loader { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid rgba(214,208,196,.15);
+  border-top-color: rgba(214,208,196,.7); animation: spin 1.1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.boot .ready { opacity: 0; color: var(--ash); font-size: clamp(10px, 1vw, 13px); letter-spacing: .12em; }
+.boot.loaded .loader { opacity: 0; animation-play-state: paused; }
+.boot.loaded .ready { opacity: .75; animation: blink 2.4s ease-in-out .8s infinite; }
 .title .tag { color: var(--ash); font-size: clamp(10px, 1.05vw, 14px); letter-spacing: .06em; }
 .controls { display: flex; flex-wrap: wrap; justify-content: center; gap: .5em 1.4em; font-size: clamp(10px, .95vw, 13px); color: var(--ash); max-width: 52em; }
 .controls span { display: inline-flex; align-items: center; gap: .45em; }
@@ -171,6 +180,10 @@ body { font-family: var(--sans); }
     <div class="overlay" id="titleScreen">
       <div class="title">
         <img class="logo" src="assets/title.png" alt="여명 黎明">
+        <div class="boot" id="titleBoot">
+          <div class="loader" role="progressbar" aria-label="불러오는 중"></div>
+          <div class="ready">아무 키나 눌러 시작</div>
+        </div>
       </div>
     </div>
 
@@ -518,6 +531,27 @@ function shapeBox(s, H) {
   s.geo.computeBoundingBox();
   s.geo.computeBoundingSphere();
 }
+// Loading: the game can't be started from the title until everything it shows is in — every texture, glTF model
+// and prop (they all go through three's default loading manager), and Hajin's Mixamo rig with its motions (fetched
+// apart, so it reports itself: loaded('rigs')). Then the shaders are compiled and one frame drawn, so the first
+// moments of play don't stutter, and the title's spinner gives way to the prompt. A slow or failed load stops
+// holding the title after BOOT_WAIT seconds.
+const BOOT_WAIT = 90;
+let READY = false;
+const pendingLoads = { manager: false, rigs: false };
+function loaded(what) {
+  pendingLoads[what] = true;
+  if (READY || !pendingLoads.manager || !pendingLoads.rigs) return;
+  READY = true;
+  try { renderer.compile(present, camera); renderer.compile(past, camera); draw(); } catch (e) { /* draw anyway on start */ }
+  document.getElementById('titleBoot').classList.add('loaded');
+}
+// (a glTF starts loading its textures only once its own file is in, so "all done" can come too early for a
+// moment: it only counts if nothing new has started half a second later)
+const mgr = { done: 0, total: 0 };
+THREE.DefaultLoadingManager.onProgress = (url, done, total) => { mgr.done = done; mgr.total = total; };
+THREE.DefaultLoadingManager.onLoad = () => setTimeout(() => { if (mgr.done >= mgr.total) loaded('manager'); }, 500);
+setTimeout(() => { loaded('manager'); loaded('rigs'); }, BOOT_WAIT * 1000);
 const texLoader = new THREE.TextureLoader();
 const textures = {};
 function texture(name) {
@@ -2735,7 +2769,7 @@ if (THREE.GLTFLoader) {
     present.add(rp.group); past.add(rq.group);
     hajinP.visible = false; hajinQ.visible = false;
     rigs = [rp, rq];
-    if (!THREE.FBXLoader) return;
+    if (!THREE.FBXLoader) { loaded('rigs'); return; }
     // the glTF's own materials, exactly as the hand-built rig wears them
     const presentMat = src => { const m = src.clone(); m.emissiveIntensity = 0.25; m.skinning = true; return m; };
     const pastMat = new THREE.MeshLambertMaterial({ color: 0x3a3936, skinning: true });
@@ -2747,8 +2781,9 @@ if (THREE.GLTFLoader) {
       const mp = mixRig(idle, clips, presentMat, height), mq = mixRig(idle, clips, () => pastMat, height);
       present.add(mp.group); past.add(mq.group);
       mixRigs = [mp, mq];
-    }).catch(e => console.warn('Mixamo Hajin not loaded; keeping the hand-built rig', e));
-  }, undefined, () => { /* keep the mannequin */ });
+      loaded('rigs');
+    }).catch(e => { console.warn('Mixamo Hajin not loaded; keeping the hand-built rig', e); loaded('rigs'); });
+  }, undefined, () => loaded('rigs'));                                          // (keep the mannequin)
   let pending = 2;
   [['b', 'assets/bowed.json'], ['m', 'assets/mother.json']].forEach(([k, url]) => gl.load(url, g => {
     g.scene.traverse(o => { if (o.isMesh) o.material.emissiveIntensity = 0.15; });
@@ -2789,7 +2824,7 @@ if (THREE.GLTFLoader) {
     });
     Object.keys(MODULES).forEach(applyModule);            // recoloured modules pick up the new meshes
   }, undefined, () => { /* the spots stay empty */ }));
-}
+} else loaded('rigs');
 
 function placeHajin(kind, x, y, dir, dt) {
   const z = kind === 'sit' ? 0.2 : S.z;
@@ -2998,7 +3033,7 @@ resetState();
 
 const keys = {};
 // Little Nightmares controls: the arrows move, the pointer near an edge of the frame looks,
-// Z jumps (and takes a ladder), Shift runs, Ctrl crouches, X (or left click) grabs/examines, F the compass, R the radio
+// Z jumps (and takes a ladder), Shift runs, Ctrl crouches, X (or left click) grabs/examines, C the compass, R the radio
 // controls: the arrow keys move (↑ into the scene, ↓ toward the camera; on a ladder, up and down), Shift runs,
 // Ctrl crouches / crawls / hides, Z jumps (and takes hold of a ladder), X interacts (look, take, go down / up)
 const isLeft = () => keys.ArrowLeft;
@@ -3008,8 +3043,9 @@ const isDown = () => keys.ArrowDown;      // toward the camera
 const saheePlaying = () => S.saheeT >= 0 && !S.saheeDone;
 const busy = () => S.anim || S.fade || S.docOpen || S.ended || S.grab || saheePlaying();
 
-function start() {
-  if (S.started) return;
+function start(force = false) {
+  if (S.started || (!READY && !force)) return;                 // still loading: the title holds
+  READY = true; document.getElementById('titleBoot').classList.add('loaded');
   S.started = true;
   audioInit();
   if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
@@ -3201,7 +3237,7 @@ window.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.repeat) return;
   if (e.code === 'KeyR') toggleRadio();
-  if (e.code === 'KeyF') toggleCompass();
+  if (e.code === 'KeyC') toggleCompass();
   if (e.code === 'KeyX' || (e.code === 'Escape' && S.docOpen)) interact();
   if (e.code === 'KeyZ') act();
 });
@@ -3219,7 +3255,7 @@ frame.addEventListener('mousemove', e => {
   mouse.in = true;
 });
 frame.addEventListener('mouseleave', () => { mouse.in = false; });
-// F opens the compass and it stays open (the past stays on screen) until F is pressed again
+// C opens the compass and it stays open (the past stays on screen) until C is pressed again
 function toggleCompass() {
   if (!S.compassGot || S.docOpen || saheePlaying()) return;
   S.compassOn = !S.compassOn;
@@ -3553,7 +3589,7 @@ function update(dt) {
     if (S.radio) hint('radioOffSt', 'R', '라디오 끄기', true);
     else if (S.cover) hint('', '', '');
     else if (coverHere) hint('hide', 'Ctrl', '누르고 있기 · 숨기', true);
-    else if (!S.sawHider) hint('hidePast', 'F', '과거에 숨었던 자리를 본다', true);
+    else if (!S.sawHider) hint('hidePast', 'C', '과거에 숨었던 자리를 본다', true);
     else hint('', '', '');
   } else if (S.sitting) {
     S.sitTimer += dt;
@@ -3566,15 +3602,15 @@ function update(dt) {
   } else if (!S.anim && CLIMBS.some(c => c.level === S.level && Math.abs(S.x - c.x) < 2.4 && S.y < c.h - 0.3)) {
     hint('climb', 'Z', '점프해서 올라가기');
   } else if (S.compassGot && !S.sawCampPast && S.level === 'near' && S.x < 50) {
-    hint('compass', 'F', '나침반 열기 · 닫기', true);
+    hint('compass', 'C', '나침반 열기 · 닫기', true);
     if (S.reveal > 1.0) { S.sawCampPast = true; say('하진', '…또 이쪽이야.', 3.0); }
   } else if (S.level === 'near' && S.x > 71.5 && !S.revealedBridge) {
     if (!S.edgeSeen) { S.edgeSeen = true; say('하진', '끊겼네.', 2.4); }
-    hint('edge', 'F', '과거의 다리를 본다', true);
+    hint('edge', 'C', '과거의 다리를 본다', true);
   } else if (!S.anim && !S.ladder && ladderNear()) {
     hint('ladder', 'Z', '사다리 타기');
   } else if (!S.anim && !S.ladder && ladderNear(true)) {
-    hint('ladderLocked', 'F', '내려갈 길은 과거에서 찾는다', true);          // the near ladder: once the past has shown the way
+    hint('ladderLocked', 'C', '내려갈 길은 과거에서 찾는다', true);          // the near ladder: once the past has shown the way
   } else if (S.ladder) {
     hint('ladderOn', '↑·↓', '오르기 · 내려가기');
   } else if (S.level === 'river' && !S.fragmentTaken && Math.abs(S.x - FRAGMENT_X) < 1.6) {
@@ -3582,7 +3618,7 @@ function update(dt) {
   } else if (S.level === 'far' && Math.abs(S.x - ENTRY_X) < ENTRY_R) {
     hint('subway', 'X', '지하철역으로 내려가기');
   } else if (tunnel && !S.seenCar && Math.abs(S.x - CAR_X) < 7) {
-    hint('car', 'F', '열차 칸의 과거를 본다', true);
+    hint('car', 'C', '열차 칸의 과거를 본다', true);
   } else if (tunnel && S.seenCar && !S.bandageTaken && Math.abs(S.x - BANDAGE_X) < 1.6) {
     hint('bandage', 'X', '살펴보기');
   } else if (tunnel && S.x > TUNNEL_EXIT - 2.5) {
@@ -3980,7 +4016,7 @@ function showSelection() {
 
 function goTo(id) {
   const M = MODULES[id], g = M.groups.present || M.groups.past, L = LEVELS[M.level];
-  if (!S.started) start();
+  if (!S.started) start(true);                                // (the editor and debug can start before loading ends)
   Object.assign(S, { level: M.level, y: L.y, x: Math.max(L.min, Math.min(L.max, g.position.x)), vel: 0, anim: null, ladder: null, sitting: false, compassGot: true });
   S.checkpoint = { level: S.level, x: S.x };       // getting caught after a jump returns here
   S.camX = S.x; S.camY = S.y + 1.2;
