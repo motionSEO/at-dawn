@@ -135,6 +135,28 @@ body { font-family: var(--sans); }
 }
 .toast.on { opacity: 1; transform: none; }
 .toast small { display: block; color: var(--ash); letter-spacing: .14em; font-size: .78em; margin-bottom: .15em; }
+/* the key guide at the start of play: keycaps down the left of the frame, centred, fading once he's under way */
+.keyguide {
+  position: absolute; left: 3%; top: 50%; transform: translateY(-50%); display: grid; gap: .55em;
+  font-size: clamp(9px, .9vw, 13px); color: var(--bone); opacity: 0; transition: opacity 1.2s ease; pointer-events: none;
+}
+.keyguide.on { opacity: .9; }
+.keyguide .kg-row { display: grid; grid-template-columns: 5.6em auto; align-items: center; gap: .9em; }
+.keyguide .kg-keys { display: flex; justify-content: flex-end; gap: .25em; }
+.keyguide .cap {
+  display: inline-grid; place-items: center; min-width: 1.75em; height: 1.75em; padding: 0 .4em; box-sizing: border-box;
+  border: 1px solid rgba(232,226,214,.75); border-radius: 3px; font-size: .92em; line-height: 1; background: rgba(4,5,7,.35);
+}
+.keyguide .arrows { display: grid; grid-template-columns: repeat(3, 1.75em); grid-template-rows: repeat(2, 1.75em); gap: .2em; }
+.keyguide .arrows .cap { min-width: 0; padding: 0; }
+.keyguide .arrows .u { grid-column: 2; grid-row: 1; }
+.keyguide .arrows .l { grid-column: 1; grid-row: 2; }
+.keyguide .arrows .d { grid-column: 2; grid-row: 2; }
+.keyguide .arrows .r { grid-column: 3; grid-row: 2; }
+.keyguide .kg-label { color: var(--ash); letter-spacing: .06em; white-space: nowrap; }
+#frame.inpast .keyguide { color: var(--paper-ink); }
+#frame.inpast .keyguide .cap { border-color: var(--paper-ink); background: rgba(255,255,255,.4); }
+#frame.inpast .keyguide .kg-label { color: #55524c; }
 .title .tag { color: var(--ash); font-size: clamp(10px, 1.05vw, 14px); letter-spacing: .06em; }
 .controls { display: flex; flex-wrap: wrap; justify-content: center; gap: .5em 1.4em; font-size: clamp(10px, .95vw, 13px); color: var(--ash); max-width: 52em; }
 .controls span { display: inline-flex; align-items: center; gap: .45em; }
@@ -227,6 +249,7 @@ body { font-family: var(--sans); }
     <div class="sub" id="sub"><span class="who" id="subWho"></span><span id="subText"></span></div>
     <div class="hint" id="hint"><span class="key" id="hintKey"></span><span id="hintText"></span></div>
     <div class="tally" id="tally">기억 조각 0 / 3</div>
+    <div class="keyguide" id="keyGuide" aria-label="조작 안내"></div>
     <div class="chapter" id="chapter"><small id="chapterNo"></small><span id="chapterName"></span></div>
     <div class="veil" id="veil"></div>
 
@@ -3180,7 +3203,8 @@ const EN = {
   '안쪽으로 · 사다리 오르기': 'Into the scene · climb', '바깥쪽으로 · 사다리 내려가기': 'Toward the camera · climb down',
   '달리기': 'Run', '기어가기 · 웅크리기 · 숨기': 'Crawl · crouch · hide', '점프 · 사다리 잡기': 'Jump · take a ladder',
   '상호작용 (잡기, 살펴보기)': 'Interact (take, examine)', '나침반 (과거 ↔ 현재)': 'Compass (past ↔ present)', '라디오 켜기 · 끄기': 'Radio on · off',
-  '일시정지 · 메뉴': 'Pause · menu', '도전과제 달성': 'Achievement', '달성': 'Unlocked',
+  '일시정지 · 메뉴': 'Pause · menu', '이동': 'Move', '숨기 · 기어가기': 'Hide · crawl', '점프': 'Jump',
+  '살펴보기 · 잡기': 'Examine · take', '나침반': 'Compass', '메뉴': 'Menu', '도전과제 달성': 'Achievement', '달성': 'Unlocked',
   // places
   '구간 1 · 캠프': 'Part 1 · The camp', '구간 1 · 무너진 다리': 'Part 1 · The broken bridge', '구간 1 · 강바닥': 'Part 1 · The riverbed',
   '구간 1 · 건너편': 'Part 1 · The far bank', '구간 2 · 버섯 지하철': 'Part 2 · The mushroom subway',
@@ -3199,6 +3223,34 @@ const EN = {
   '…거리로 나서지 마십시오. 그것들은 소리를 듣습니다.': '…do not go out into the streets. They hear sound.',
 };
 const T = s => (SET.lang === 'en' && EN[s]) || s;
+// the key guide: what each key does, drawn from the current bindings and language. It comes up when play starts and
+// fades KEYGUIDE.hold seconds after he's on his feet (or once he has walked off past the camp)
+const KEYGUIDE = { hold: 14, past: 16 };
+function renderKeyGuide() {
+  const g = $('keyGuide');
+  g.innerHTML = '';
+  const cap = (code, parent, cls) => el2('span', 'cap' + (cls ? ' ' + cls : ''), keyName(code), parent);
+  const row = (label) => {
+    const r = el2('div', 'kg-row', undefined, g);
+    const k = el2('div', 'kg-keys', undefined, r);
+    el2('span', 'kg-label', T(label), r);
+    return k;
+  };
+  const arrows = el2('div', 'arrows', undefined, row('이동'));
+  cap(SET.keys.up, arrows, 'u');
+  [['left', 'l'], ['down', 'd'], ['right', 'r']].forEach(([a, cls]) => cap(SET.keys[a], arrows, cls));
+  [['run', '달리기'], ['crouch', '숨기 · 기어가기'], ['jump', '점프'], ['interact', '살펴보기 · 잡기'], ['compass', '나침반'],
+   ['radio', '라디오']].forEach(([a, label]) => cap(SET.keys[a], row(label)));
+  cap('Escape', row('메뉴')).textContent = 'Esc';
+}
+function showKeyGuide() { renderKeyGuide(); S.guideT = 0; $('keyGuide').classList.add('on'); }
+function updateKeyGuide(dt) {
+  const g = $('keyGuide');
+  if (!g.classList.contains('on')) return;
+  if (!S.sitting) S.guideT = (S.guideT || 0) + dt;
+  if (S.guideT > KEYGUIDE.hold || (S.level === 'near' && S.x > KEYGUIDE.past) || S.level !== 'near' && S.guideT > 6) g.classList.remove('on');
+}
+function hideKeyGuide() { $('keyGuide').classList.remove('on'); }
 function applyLanguage() {
   document.documentElement.lang = SET.lang;
   document.querySelectorAll('[data-en]').forEach(el => {
@@ -3206,6 +3258,7 @@ function applyLanguage() {
     el.innerHTML = SET.lang === 'en' ? el.dataset.en : el.dataset.ko;
   });
   hintId = '';                                     // the next hint is drawn again, in the new language
+  if (typeof renderKeyGuide === 'function') renderKeyGuide();
   $('tally').textContent = T('기억 조각') + ' ' + (S ? S.fragments : 0) + ' / 3';
 }
 
@@ -3313,6 +3366,7 @@ function closeAllMenus() {
 }
 function toMainMenu() {
   closeAllMenus();
+  hideKeyGuide();
   resetState();
   $('endScreen').classList.add('fade');
   $('titleScreen').classList.remove('fade');
@@ -3420,6 +3474,7 @@ function rebind(code) {
     if (other) SET.keys[other] = SET.keys[a];
     SET.keys[a] = code;
     saveSettings();
+    renderKeyGuide();
   }
   renderPanel();
   const b = [...$('panelBody').querySelectorAll('.keybtn')][ACTIONS.indexOf(a)];
@@ -3473,6 +3528,7 @@ function start(force = false) {
   S.started = true;
   audioInit();
   applySound();
+  showKeyGuide();
   $('tally').textContent = T('기억 조각') + ' ' + S.fragments + ' / 3';
   if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
   $('titleScreen').classList.add('fade');
@@ -4303,7 +4359,7 @@ function frameLoop(now) {
     placeHajin('sit', 1.0, 0, 1, dt);
   }
   if (!UI.paused) update(dt);
-  if (S.started && !UI.paused) checkAchievements(dt);
+  if (S.started && !UI.paused) { checkAchievements(dt); updateKeyGuide(dt); }
   post.uniforms.uTime.value = now / 1000;
   draw();
   requestAnimationFrame(frameLoop);
