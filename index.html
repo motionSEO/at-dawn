@@ -80,6 +80,13 @@ body { font-family: var(--sans); }
   border-top-color: rgba(214,208,196,.7); animation: spin 1.1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .boot.loaded .loader { opacity: 0; animation-play-state: paused; }
+/* the ring and, under it, "please wait": gone once everything is in */
+.loading { display: grid; justify-items: center; gap: .9em; }
+.loading .wait { margin: 0; color: var(--ash); font-size: clamp(10px, .95vw, 13px); letter-spacing: .14em; }
+.boot.loaded .loading { opacity: 0; pointer-events: none; }
+/* before play: a quiet line at the foot of the title screen saying it's a prototype */
+.proto { position: absolute; left: 0; right: 0; bottom: 5%; margin: 0; text-align: center; color: var(--ash);
+  font-size: clamp(9px, .85vw, 12px); letter-spacing: .18em; opacity: .7; }
 /* the main menu under the logo (once loaded), and the same list in the pause menu: plain serif words, the chosen
    one simply brighter */
 .menu { display: grid; gap: .15em; justify-items: center; }
@@ -257,7 +264,10 @@ body { font-family: var(--sans); }
       <div class="title">
         <img class="logo" src="assets/title.png" alt="여명 黎明">
         <div class="boot" id="titleBoot">
-          <div class="loader" role="progressbar" aria-label="불러오는 중"></div>
+          <div class="loading">
+            <div class="loader" role="progressbar" aria-label="불러오는 중"></div>
+            <p class="wait" data-en="Please wait a moment">잠시만 기다려 주세요</p>
+          </div>
           <nav class="menu" id="mainMenu" aria-label="메인 메뉴">
             <button type="button" data-act="new" data-en="Start">시작하기</button>
             <button type="button" data-act="load" data-en="Load">불러오기</button>
@@ -267,6 +277,7 @@ body { font-family: var(--sans); }
           </nav>
         </div>
       </div>
+      <p class="proto" data-en="Prototype · this game is still in development">프로토타입 · 개발 중인 게임입니다</p>
     </div>
 
     <div class="overlay fade" id="docScreen">
